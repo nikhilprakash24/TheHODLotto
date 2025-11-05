@@ -83,7 +83,8 @@ describe("Full Lottery Flow - Integration Tests", function () {
 
       // Phase 2: Fund prize bucket
       console.log("      Phase 2: Funding prize bucket");
-      const ethPrize = ethers.parseEther("2");
+      const configuredPrize = ethers.parseEther("1"); // Weekly draw configured for 1 ETH
+      const ethPrize = ethers.parseEther("2"); // Fund with 2 ETH (enough for 2 draws)
       const tokenPrize = ethers.parseEther("1000");
 
       await prizeToken.approve(await drawManager.getAddress(), tokenPrize);
@@ -112,7 +113,7 @@ describe("Full Lottery Flow - Integration Tests", function () {
       console.log(`      Prize Tokens: ${draw.prizeTokens.length}`);
 
       expect(draw.winner).to.not.equal(ethers.ZeroAddress);
-      expect(draw.prizeEth).to.equal(ethPrize);
+      expect(draw.prizeEth).to.equal(configuredPrize); // Should match configured amount, not funded amount
 
       // Phase 6: Verify winner received prizes
       const winner = draw.winner;
@@ -416,7 +417,7 @@ describe("Full Lottery Flow - Integration Tests", function () {
       // Draw should fail
       await expect(
         drawManager.executeDraw(0)
-      ).to.be.revertedWith("Pausable: paused");
+      ).to.be.revertedWithCustomError(drawManager, "EnforcedPause");
 
       // Unpause and draw should work
       await drawManager.unpause();
