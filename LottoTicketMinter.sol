@@ -37,15 +37,30 @@ contract NFTLotteryMintingTierV11 is Initializable, ERC721Upgradeable, OwnableUp
         uint256 weight;
     }
 
+    // Struct for storing participant information with weighted ranges (gas-efficient)
+    struct Participant {
+        address owner;
+        uint256 lottoID;
+        uint256 weightStart;  // Cumulative weight before this entry
+        uint256 weightEnd;    // Cumulative weight including this entry (exclusive)
+        uint256 tier;
+    }
+
     mapping(uint256 => Tier) public tiers;  // Mapping from tier number to tier information
     mapping(uint256 => uint256) private _tokenTiers;  // Mapping from token ID to tier number
 
-    mapping(uint256 => uint256) public lotto;  // Mapping from pointer to lottoID
     mapping(uint256 => address) public lottoIDIndexer;  // Mapping from lottoID to address
     mapping(address => LottoEntry[]) public addressToLottoIDs;  // Mapping from address to list of LottoEntries
 
-    uint256 public lottoPointer;
-    uint256 public totalCumulativeWeight;  // Running total of the cumulative weight
+    Participant[] public participants;  // Array of all participants with their weighted ranges
+    uint256 public totalWeight;  // Total weight of all participants
+
+    // Lottery draw state
+    address public lastWinner;
+    uint256 public lastWinningLottoID;
+    uint256 public lastWinningNumber;
+    uint256 public prizePool;
+    bool public lotteryActive;
 
     // Events
     event TierPriceSet(uint256 tier, uint256 priceInBaseToken, uint256 priceInPaymentToken, uint256 priceInAnotherPaymentToken);
@@ -54,6 +69,9 @@ contract NFTLotteryMintingTierV11 is Initializable, ERC721Upgradeable, OwnableUp
     event AnotherPaymentTokenSet(address token);
     event TokenMinted(address indexed owner, uint256 tokenId, uint256 tier, uint256 lottoID);
     event Withdrawn(address indexed owner, uint256 amount);
+    event LotteryDrawn(address indexed winner, uint256 lottoID, uint256 winningNumber, uint256 prize);
+    event LotteryActivated();
+    event LotteryDeactivated();
 
     /**
      * @dev Initializes the contract, setting the initial tier weights and prices.
@@ -71,7 +89,8 @@ contract NFTLotteryMintingTierV11 is Initializable, ERC721Upgradeable, OwnableUp
                 weight: 1 << i // 1, 2, 4, 8, 16, 32, 64, 128, 256, 512
             });
         }
-        totalCumulativeWeight = 0;  // Initialize total cumulative weight
+        totalWeight = 0;  // Initialize total weight
+        lotteryActive = true;  // Lottery starts active
     }
 
     // Modifiers
@@ -100,9 +119,8 @@ contract NFTLotteryMintingTierV11 is Initializable, ERC721Upgradeable, OwnableUp
      * @param weight The weight value.
      */
     function setTierWeight(uint256 tier, uint256 weight) external onlyOwner onlyValidTier(tier) {
-        totalCumulativeWeight -= tiers[tier].weight;  // Subtract old weight from total
+        require(weight > 0, "Weight must be greater than 0");
         tiers[tier].weight = weight;
-        totalCumulativeWeight += weight;  // Add new weight to total
         emit TierWeightSet(tier, weight);
     }
 
@@ -161,6 +179,8 @@ contract NFTLotteryMintingTierV11 is Initializable, ERC721Upgradeable, OwnableUp
      * @param tier The tier number.
      */
     function _mintToken(uint256 tier) internal {
+        require(lotteryActive, "Lottery is not active");
+
         uint256 newTokenId = _tokenIds.current();
         _tokenIds.increment();
         _tokenTiers[newTokenId] = tier;
@@ -175,13 +195,17 @@ contract NFTLotteryMintingTierV11 is Initializable, ERC721Upgradeable, OwnableUp
         // Update address to LottoIDs mapping with LottoEntry struct
         addressToLottoIDs[msg.sender].push(LottoEntry({lottoID: lottoID, weight: tiers[tier].weight}));
 
-        // Update lottery entries based on tier weight
+        // Add participant with weighted range (GAS EFFICIENT - only 1 storage write!)
         uint256 weight = tiers[tier].weight;
-        totalCumulativeWeight += weight;  // Add weight to total cumulative weight
-        for (uint256 i = 0; i < weight; i++) {
-            lotto[lottoPointer] = lottoID;
-            lottoPointer++;
-        }
+        participants.push(Participant({
+            owner: msg.sender,
+            lottoID: lottoID,
+            weightStart: totalWeight,
+            weightEnd: totalWeight + weight,
+            tier: tier
+        }));
+
+        totalWeight += weight;  // Update total weight
 
         emit TokenMinted(msg.sender, newTokenId, tier, lottoID);
     }
@@ -216,17 +240,114 @@ contract NFTLotteryMintingTierV11 is Initializable, ERC721Upgradeable, OwnableUp
     }
 
     /**
+     * @dev Returns the total number of participants in the lottery.
+     * @return The number of participants.
+     */
+    function getParticipantCount() external view returns (uint256) {
+        return participants.length;
+    }
+
+    /**
+     * @dev Draws the lottery and selects a winner using basic randomness.
+     * WARNING: This uses blockhash which is not perfectly secure for high-value lotteries.
+     * Consider using Chainlink VRF for production with significant prizes.
+     * @return winner The address of the winner.
+     */
+    function drawLottery() external onlyOwner returns (address winner) {
+        require(lotteryActive, "Lottery is not active");
+        require(totalWeight > 0, "No participants in lottery");
+        require(participants.length > 0, "No participants");
+
+        // Generate pseudo-random number using blockhash
+        // NOTE: This is basic randomness - for production with real prizes, use Chainlink VRF
+        uint256 randomNumber = uint256(keccak256(abi.encodePacked(
+            block.timestamp,
+            block.prevrandao, // replaces block.difficulty in post-merge Ethereum
+            msg.sender,
+            participants.length,
+            totalWeight
+        ))) % totalWeight;
+
+        // Find winner using weighted selection
+        address winnerAddress = _selectWinner(randomNumber);
+
+        // Store draw results
+        lastWinner = winnerAddress;
+        lastWinningNumber = randomNumber;
+
+        // Find the winning lottoID
+        for (uint256 i = 0; i < participants.length; i++) {
+            if (participants[i].owner == winnerAddress &&
+                randomNumber >= participants[i].weightStart &&
+                randomNumber < participants[i].weightEnd) {
+                lastWinningLottoID = participants[i].lottoID;
+                break;
+            }
+        }
+
+        // Calculate prize (current contract balance)
+        uint256 prize = address(this).balance;
+        prizePool = prize;
+
+        // Transfer prize to winner
+        if (prize > 0) {
+            (bool success, ) = payable(winnerAddress).call{value: prize}("");
+            require(success, "Prize transfer failed");
+        }
+
+        emit LotteryDrawn(winnerAddress, lastWinningLottoID, randomNumber, prize);
+
+        return winnerAddress;
+    }
+
+    /**
+     * @dev Internal function to select winner based on random number and weighted ranges.
+     * @param randomNumber The random number within the range [0, totalWeight).
+     * @return The address of the winner.
+     */
+    function _selectWinner(uint256 randomNumber) internal view returns (address) {
+        // Binary search could be used for large participant counts, but linear search is simple
+        for (uint256 i = 0; i < participants.length; i++) {
+            if (randomNumber >= participants[i].weightStart && randomNumber < participants[i].weightEnd) {
+                return participants[i].owner;
+            }
+        }
+        revert("Winner not found"); // Should never happen
+    }
+
+    /**
+     * @dev Activates the lottery to allow minting.
+     */
+    function activateLottery() external onlyOwner {
+        lotteryActive = true;
+        emit LotteryActivated();
+    }
+
+    /**
+     * @dev Deactivates the lottery to prevent new minting (useful before drawing).
+     */
+    function deactivateLottery() external onlyOwner {
+        lotteryActive = false;
+        emit LotteryDeactivated();
+    }
+
+    /**
      * @dev Withdraws the contract balance to the owner.
+     * NOTE: Consider using SafeERC20 for token transfers in production.
      */
     function withdraw() external onlyOwner {
         uint256 balance = address(this).balance;
-        payable(owner()).transfer(balance);
-        emit Withdrawn(owner(), balance);
+        if (balance > 0) {
+            (bool success, ) = payable(owner()).call{value: balance}("");
+            require(success, "ETH withdrawal failed");
+            emit Withdrawn(owner(), balance);
+        }
 
         if (paymentToken != address(0)) {
             uint256 tokenBalance = IERC20Upgradeable(paymentToken).balanceOf(address(this));
             if (tokenBalance > 0) {
-                IERC20Upgradeable(paymentToken).transfer(owner(), tokenBalance);
+                bool success = IERC20Upgradeable(paymentToken).transfer(owner(), tokenBalance);
+                require(success, "Payment token withdrawal failed");
                 emit Withdrawn(owner(), tokenBalance);
             }
         }
@@ -234,7 +355,8 @@ contract NFTLotteryMintingTierV11 is Initializable, ERC721Upgradeable, OwnableUp
         if (anotherPaymentToken != address(0)) {
             uint256 tokenBalance = IERC20Upgradeable(anotherPaymentToken).balanceOf(address(this));
             if (tokenBalance > 0) {
-                IERC20Upgradeable(anotherPaymentToken).transfer(owner(), tokenBalance);
+                bool success = IERC20Upgradeable(anotherPaymentToken).transfer(owner(), tokenBalance);
+                require(success, "Another payment token withdrawal failed");
                 emit Withdrawn(owner(), tokenBalance);
             }
         }
