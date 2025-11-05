@@ -6,7 +6,9 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/AddressUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/CountersUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
 
 /**
  * @title NFTLotteryMintingTierV11
@@ -14,9 +16,10 @@ import "@openzeppelin/contracts-upgradeable/utils/CountersUpgradeable.sol";
  *      Allows minting with base blockchain token or ERC20 tokens, with settable prices and weights for tiers.
  *      Includes a decentralized lottery system based on NFT weight.
  */
-contract NFTLotteryMintingTierV11 is Initializable, ERC721Upgradeable, OwnableUpgradeable {
+contract NFTLotteryMintingTierV11 is Initializable, ERC721Upgradeable, OwnableUpgradeable, ReentrancyGuardUpgradeable {
     using AddressUpgradeable for address;
     using CountersUpgradeable for CountersUpgradeable.Counter;
+    using SafeERC20Upgradeable for IERC20Upgradeable;
 
     CountersUpgradeable.Counter private _tokenIds;
     CountersUpgradeable.Counter private _lottoIdCounter;
@@ -79,6 +82,7 @@ contract NFTLotteryMintingTierV11 is Initializable, ERC721Upgradeable, OwnableUp
     function initialize() public initializer {
         __ERC721_init("NFTLotteryMintingTierV11", "NFTTV11");
         __Ownable_init();
+        __ReentrancyGuard_init();
 
         // Initialize tier weights and prices
         for (uint256 i = 0; i < 10; i++) {
@@ -107,6 +111,11 @@ contract NFTLotteryMintingTierV11 is Initializable, ERC721Upgradeable, OwnableUp
      * @param priceInAnotherPaymentToken The price in another specified payment token.
      */
     function setTierPrice(uint256 tier, uint256 priceInBaseToken, uint256 priceInPaymentToken, uint256 priceInAnotherPaymentToken) external onlyOwner onlyValidTier(tier) {
+        // Validation: at least one price must be greater than 0
+        require(
+            priceInBaseToken > 0 || priceInPaymentToken > 0 || priceInAnotherPaymentToken > 0,
+            "At least one price must be greater than 0"
+        );
         tiers[tier].priceInBaseToken = priceInBaseToken;
         tiers[tier].priceInPaymentToken = priceInPaymentToken;
         tiers[tier].priceInAnotherPaymentToken = priceInAnotherPaymentToken;
@@ -146,8 +155,9 @@ contract NFTLotteryMintingTierV11 is Initializable, ERC721Upgradeable, OwnableUp
      * @dev Mints an NFT with the base blockchain token.
      * @param tier The tier number.
      */
-    function mintWithBaseToken(uint256 tier) external payable onlyValidTier(tier) {
+    function mintWithBaseToken(uint256 tier) external payable nonReentrant onlyValidTier(tier) {
         require(msg.value >= tiers[tier].priceInBaseToken, "Insufficient payment");
+        require(tiers[tier].priceInBaseToken > 0, "Base token payment not accepted for this tier");
 
         _mintToken(tier);
     }
@@ -156,10 +166,12 @@ contract NFTLotteryMintingTierV11 is Initializable, ERC721Upgradeable, OwnableUp
      * @dev Mints an NFT with the specified payment token.
      * @param tier The tier number.
      */
-    function mintWithPaymentToken(uint256 tier) external onlyValidTier(tier) {
+    function mintWithPaymentToken(uint256 tier) external nonReentrant onlyValidTier(tier) {
         uint256 price = tiers[tier].priceInPaymentToken;
-        require(IERC20Upgradeable(paymentToken).transferFrom(msg.sender, address(this), price), "Payment failed");
+        require(price > 0, "Payment token not accepted for this tier");
+        require(paymentToken != address(0), "Payment token not set");
 
+        IERC20Upgradeable(paymentToken).safeTransferFrom(msg.sender, address(this), price);
         _mintToken(tier);
     }
 
@@ -167,10 +179,12 @@ contract NFTLotteryMintingTierV11 is Initializable, ERC721Upgradeable, OwnableUp
      * @dev Mints an NFT with another specified payment token.
      * @param tier The tier number.
      */
-    function mintWithAnotherPaymentToken(uint256 tier) external onlyValidTier(tier) {
+    function mintWithAnotherPaymentToken(uint256 tier) external nonReentrant onlyValidTier(tier) {
         uint256 price = tiers[tier].priceInAnotherPaymentToken;
-        require(IERC20Upgradeable(anotherPaymentToken).transferFrom(msg.sender, address(this), price), "Payment failed");
+        require(price > 0, "Another payment token not accepted for this tier");
+        require(anotherPaymentToken != address(0), "Another payment token not set");
 
+        IERC20Upgradeable(anotherPaymentToken).safeTransferFrom(msg.sender, address(this), price);
         _mintToken(tier);
     }
 
@@ -253,7 +267,7 @@ contract NFTLotteryMintingTierV11 is Initializable, ERC721Upgradeable, OwnableUp
      * Consider using Chainlink VRF for production with significant prizes.
      * @return winner The address of the winner.
      */
-    function drawLottery() external onlyOwner returns (address winner) {
+    function drawLottery() external onlyOwner nonReentrant returns (address winner) {
         require(lotteryActive, "Lottery is not active");
         require(totalWeight > 0, "No participants in lottery");
         require(participants.length > 0, "No participants");
@@ -333,9 +347,8 @@ contract NFTLotteryMintingTierV11 is Initializable, ERC721Upgradeable, OwnableUp
 
     /**
      * @dev Withdraws the contract balance to the owner.
-     * NOTE: Consider using SafeERC20 for token transfers in production.
      */
-    function withdraw() external onlyOwner {
+    function withdraw() external onlyOwner nonReentrant {
         uint256 balance = address(this).balance;
         if (balance > 0) {
             (bool success, ) = payable(owner()).call{value: balance}("");
@@ -346,8 +359,7 @@ contract NFTLotteryMintingTierV11 is Initializable, ERC721Upgradeable, OwnableUp
         if (paymentToken != address(0)) {
             uint256 tokenBalance = IERC20Upgradeable(paymentToken).balanceOf(address(this));
             if (tokenBalance > 0) {
-                bool success = IERC20Upgradeable(paymentToken).transfer(owner(), tokenBalance);
-                require(success, "Payment token withdrawal failed");
+                IERC20Upgradeable(paymentToken).safeTransfer(owner(), tokenBalance);
                 emit Withdrawn(owner(), tokenBalance);
             }
         }
@@ -355,8 +367,7 @@ contract NFTLotteryMintingTierV11 is Initializable, ERC721Upgradeable, OwnableUp
         if (anotherPaymentToken != address(0)) {
             uint256 tokenBalance = IERC20Upgradeable(anotherPaymentToken).balanceOf(address(this));
             if (tokenBalance > 0) {
-                bool success = IERC20Upgradeable(anotherPaymentToken).transfer(owner(), tokenBalance);
-                require(success, "Another payment token withdrawal failed");
+                IERC20Upgradeable(anotherPaymentToken).safeTransfer(owner(), tokenBalance);
                 emit Withdrawn(owner(), tokenBalance);
             }
         }
