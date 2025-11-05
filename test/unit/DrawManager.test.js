@@ -150,7 +150,7 @@ describe("LotteryDrawManagerV2 - Unit Tests", function () {
 
       await expect(
         drawManager.connect(user1).configureDrawType(0, ethers.parseEther("1"), 52)
-      ).to.be.revertedWith("Ownable: caller is not the owner");
+      ).to.be.revertedWithCustomError(drawManager, "OwnableUnauthorizedAccount");
     });
   });
 
@@ -347,10 +347,10 @@ describe("LotteryDrawManagerV2 - Unit Tests", function () {
       await minting.connect(user1).mintWithBaseToken(0, { value: ethers.parseEther("0.001") });
 
       // Halve every 2 draws
-      await drawManager.configureDrawType(0, ethers.parseEther("1000"), 2);
-      await drawManager.fundPrizeBucket(0, [], [], { value: ethers.parseEther("10000") });
+      await drawManager.configureDrawType(0, ethers.parseEther("10"), 2);
+      await drawManager.fundPrizeBucket(0, [], [], { value: ethers.parseEther("100") });
 
-      const expectedPrizes = [1000, 1000, 500, 500, 250, 250, 125, 125];
+      const expectedPrizes = [10, 10, 5, 5, 2.5, 2.5, 1.25, 1.25];
 
       for (let i = 0; i < 8; i++) {
         await time.increase(7 * 24 * 60 * 60 + 1);
@@ -458,7 +458,7 @@ describe("LotteryDrawManagerV2 - Unit Tests", function () {
 
       await expect(
         drawManager.connect(user1).setRandomnessMode(1)
-      ).to.be.revertedWith("Ownable: caller is not the owner");
+      ).to.be.revertedWithCustomError(drawManager, "OwnableUnauthorizedAccount");
     });
 
     it("Should work with PSEUDO_RANDOM mode", async function () {
@@ -583,7 +583,7 @@ describe("LotteryDrawManagerV2 - Unit Tests", function () {
 
       await expect(
         drawManager.executeDraw(0)
-      ).to.be.revertedWith("Draw type not configured");
+      ).to.be.revertedWith("Draw type not active");
     });
 
     it("Should reject draw when inactive", async function () {
@@ -687,7 +687,7 @@ describe("LotteryDrawManagerV2 - Unit Tests", function () {
 
       await expect(
         drawManager.executeDraw(0)
-      ).to.be.revertedWith("Pausable: paused");
+      ).to.be.revertedWithCustomError(drawManager, "EnforcedPause");
     });
 
     it("Should allow owner to unpause", async function () {
