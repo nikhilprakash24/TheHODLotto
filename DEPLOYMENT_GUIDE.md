@@ -129,18 +129,27 @@ main().catch((error) => {
 
 ---
 
-### Step 2: Deploy RewardPoints Token
+### Step 2: Deploy RewardPoints Token (UUPS Proxy)
 
 ```javascript
 // scripts/2_deploy_reward_points.js
-const { ethers } = require("hardhat");
+const { ethers, upgrades } = require("hardhat");
 
 async function main() {
   const RewardPoints = await ethers.getContractFactory("RewardPoints");
-  const rewardPoints = await RewardPoints.deploy();
+
+  const rewardPoints = await upgrades.deployProxy(
+    RewardPoints,
+    [],
+    {
+      initializer: "initialize",
+      kind: "uups"
+    }
+  );
   await rewardPoints.waitForDeployment();
 
-  console.log("RewardPoints deployed to:", await rewardPoints.getAddress());
+  console.log("RewardPoints (Proxy) deployed to:", await rewardPoints.getAddress());
+  console.log("Implementation deployed to:", await upgrades.erc1967.getImplementationAddress(await rewardPoints.getAddress()));
 }
 
 main().catch((error) => {
@@ -149,33 +158,43 @@ main().catch((error) => {
 });
 ```
 
-**Save the address:** `REWARD_POINTS_ADDRESS=0x...`
+**Save the addresses:**
+- `REWARD_POINTS_PROXY_ADDRESS=0x...`
+- `REWARD_POINTS_IMPL_ADDRESS=0x...`
 
 ---
 
-### Step 3: Deploy RewardPointsManager
+### Step 3: Deploy RewardPointsManager (UUPS Proxy)
 
 ```javascript
 // scripts/3_deploy_reward_manager.js
-const { ethers } = require("hardhat");
+const { ethers, upgrades } = require("hardhat");
 
 async function main() {
   const HODL_TOKEN_ADDRESS = "0x..."; // From Step 1
-  const REWARD_POINTS_ADDRESS = "0x..."; // From Step 2
+  const REWARD_POINTS_PROXY_ADDRESS = "0x..."; // From Step 2
 
   // Base reward rate: 1 reward point per token per day
   // = 1e18 / (24 * 60 * 60) = ~11574074074074 wei per second
   const BASE_REWARD_RATE = "11574074074074";
 
   const RewardPointsManager = await ethers.getContractFactory("RewardPointsManager");
-  const rewardManager = await RewardPointsManager.deploy(
-    HODL_TOKEN_ADDRESS,
-    REWARD_POINTS_ADDRESS,
-    BASE_REWARD_RATE
+  const rewardManager = await upgrades.deployProxy(
+    RewardPointsManager,
+    [
+      HODL_TOKEN_ADDRESS,
+      REWARD_POINTS_PROXY_ADDRESS,
+      BASE_REWARD_RATE
+    ],
+    {
+      initializer: "initialize",
+      kind: "uups"
+    }
   );
   await rewardManager.waitForDeployment();
 
-  console.log("RewardPointsManager deployed to:", await rewardManager.getAddress());
+  console.log("RewardPointsManager (Proxy) deployed to:", await rewardManager.getAddress());
+  console.log("Implementation deployed to:", await upgrades.erc1967.getImplementationAddress(await rewardManager.getAddress()));
 }
 
 main().catch((error) => {
@@ -184,7 +203,9 @@ main().catch((error) => {
 });
 ```
 
-**Save the address:** `REWARD_MANAGER_ADDRESS=0x...`
+**Save the addresses:**
+- `REWARD_MANAGER_PROXY_ADDRESS=0x...`
+- `REWARD_MANAGER_IMPL_ADDRESS=0x...`
 
 ---
 
@@ -223,24 +244,32 @@ main().catch((error) => {
 
 ---
 
-### Step 5: Deploy Lottery Draw Manager
+### Step 5: Deploy Lottery Draw Manager (UUPS Proxy)
 
 ```javascript
 // scripts/5_deploy_draw_manager.js
-const { ethers } = require("hardhat");
+const { ethers, upgrades } = require("hardhat");
 
 async function main() {
   const MINTING_PROXY_ADDRESS = "0x..."; // From Step 4
   const RANDOMNESS_MODE = 0; // 0 = PSEUDO_RANDOM, 1 = CHAINLINK_VRF
 
   const LotteryDrawManagerV2 = await ethers.getContractFactory("LotteryDrawManagerV2");
-  const drawManager = await LotteryDrawManagerV2.deploy(
-    MINTING_PROXY_ADDRESS,
-    RANDOMNESS_MODE
+  const drawManager = await upgrades.deployProxy(
+    LotteryDrawManagerV2,
+    [
+      MINTING_PROXY_ADDRESS,
+      RANDOMNESS_MODE
+    ],
+    {
+      initializer: "initialize",
+      kind: "uups"
+    }
   );
   await drawManager.waitForDeployment();
 
-  console.log("Draw Manager deployed to:", await drawManager.getAddress());
+  console.log("Draw Manager (Proxy) deployed to:", await drawManager.getAddress());
+  console.log("Implementation deployed to:", await upgrades.erc1967.getImplementationAddress(await drawManager.getAddress()));
 }
 
 main().catch((error) => {
@@ -249,7 +278,9 @@ main().catch((error) => {
 });
 ```
 
-**Save the address:** `DRAW_MANAGER_ADDRESS=0x...`
+**Save the addresses:**
+- `DRAW_MANAGER_PROXY_ADDRESS=0x...`
+- `DRAW_MANAGER_IMPL_ADDRESS=0x...`
 
 ---
 
@@ -547,6 +578,161 @@ export const CONTRACTS = {
 
 ---
 
+## Upgrading Contracts
+
+All contracts (except HODLToken) use the UUPS (Universal Upgradeable Proxy Standard) pattern, which allows you to upgrade the implementation while preserving the contract address and state.
+
+### When to Upgrade
+
+- Fix bugs in contract logic
+- Add new features
+- Optimize gas usage
+- Improve security
+
+### How to Upgrade
+
+**IMPORTANT:** Only the owner can upgrade contracts. The proxy address remains the same.
+
+#### Upgrade RewardPoints
+
+```javascript
+// scripts/upgrade/upgrade_reward_points.js
+const { ethers, upgrades } = require("hardhat");
+
+async function main() {
+  const REWARD_POINTS_PROXY_ADDRESS = "0x..."; // Your deployed proxy
+
+  const RewardPointsV2 = await ethers.getContractFactory("RewardPointsV2");
+
+  console.log("Upgrading RewardPoints...");
+  const upgraded = await upgrades.upgradeProxy(
+    REWARD_POINTS_PROXY_ADDRESS,
+    RewardPointsV2
+  );
+
+  await upgraded.waitForDeployment();
+
+  console.log("RewardPoints upgraded successfully");
+  console.log("Proxy address (unchanged):", await upgraded.getAddress());
+  console.log("New implementation:", await upgrades.erc1967.getImplementationAddress(await upgraded.getAddress()));
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
+```
+
+#### Upgrade RewardPointsManager
+
+```javascript
+// scripts/upgrade/upgrade_reward_manager.js
+const { ethers, upgrades } = require("hardhat");
+
+async function main() {
+  const REWARD_MANAGER_PROXY_ADDRESS = "0x...";
+
+  const RewardPointsManagerV2 = await ethers.getContractFactory("RewardPointsManagerV2");
+
+  console.log("Upgrading RewardPointsManager...");
+  const upgraded = await upgrades.upgradeProxy(
+    REWARD_MANAGER_PROXY_ADDRESS,
+    RewardPointsManagerV2
+  );
+
+  console.log("RewardPointsManager upgraded successfully");
+  console.log("Proxy address (unchanged):", await upgraded.getAddress());
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
+```
+
+#### Upgrade LotteryDrawManagerV2
+
+```javascript
+// scripts/upgrade/upgrade_draw_manager.js
+const { ethers, upgrades } = require("hardhat");
+
+async function main() {
+  const DRAW_MANAGER_PROXY_ADDRESS = "0x...";
+
+  const LotteryDrawManagerV3 = await ethers.getContractFactory("LotteryDrawManagerV3");
+
+  console.log("Upgrading LotteryDrawManager...");
+  const upgraded = await upgrades.upgradeProxy(
+    DRAW_MANAGER_PROXY_ADDRESS,
+    LotteryDrawManagerV3
+  );
+
+  console.log("LotteryDrawManager upgraded successfully");
+  console.log("Proxy address (unchanged):", await upgraded.getAddress());
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
+```
+
+### Upgrade Safety
+
+**Before upgrading in production:**
+
+1. **Test on testnet first** - Always test upgrades on testnet
+2. **Validate upgrade** - Run validation before deploying:
+   ```bash
+   npx hardhat run scripts/upgrade/validate_upgrade.js
+   ```
+3. **Backup state** - Document current contract state
+4. **Pause contracts** - Pause contracts during upgrade if possible
+5. **Verify on Etherscan** - Verify new implementation after upgrade
+
+**Storage Layout Warning:**
+
+⚠️ **CRITICAL:** When upgrading, you CANNOT:
+- Change the order of existing state variables
+- Change the type of existing state variables
+- Remove existing state variables
+
+You CAN:
+- Add new state variables at the end
+- Add new functions
+- Modify function logic
+
+### Admin Controls Available
+
+All upgradeable contracts have comprehensive admin controls:
+
+**RewardPointsManager:**
+- `setBaseRewardRate(uint256)` - Update earning rate
+- `setMinClaimInterval(uint256)` - Change claim frequency
+- `setMultiplierTier(uint256, uint256, uint256)` - Update multipliers
+- `removeLastTier()` - Remove multiplier tiers
+- `pause()`/`unpause()` - Emergency controls
+
+**LotteryDrawManagerV2:**
+- `setDrawInterval(DrawType, uint256)` - Change draw timing
+- `setRandomnessMode(RandomnessMode)` - Switch randomness source
+- `setDrawTypeActive(DrawType, bool)` - Enable/disable draw types
+- `pause()`/`unpause()` - Emergency controls
+
+**NFTLotteryMintingTierV11:**
+- `setTierPrice(uint256, uint256, uint256, uint256, uint256)` - Update prices
+- `setTierWeight(uint256, uint256)` - Update tier weights
+- `setRewardPointsToken(address)` - Set reward points address
+- `setTierPriceInRewardPoints(uint256, uint256)` - Update point prices
+- `activateLottery()`/`deactivateLottery()` - Control minting
+
+**RewardPoints:**
+- `addAuthorizedSpender(address)` - Add contracts that can burn points
+- `removeAuthorizedSpender(address)` - Remove spender authorization
+- Note: `setRewardManager()` can only be called ONCE
+
+---
+
 ## Troubleshooting
 
 ### Common Issues
@@ -574,4 +760,4 @@ export const CONTRACTS = {
 ---
 
 **Last Updated:** 2025-01-06
-**Version:** 2.0 (with Reward Points System)
+**Version:** 2.1 (UUPS Upgradeable with Reward Points System)
