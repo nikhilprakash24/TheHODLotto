@@ -27,7 +27,12 @@ describe("Security Audit Tests", function () {
     }
 
     const DrawManager = await ethers.getContractFactory("LotteryDrawManagerV2");
-    const drawManager = await DrawManager.deploy(await minting.getAddress(), 0);
+    const drawManager = await upgrades.deployProxy(DrawManager, [
+      await minting.getAddress(),
+      0 // PSEUDO_RANDOM
+    ], {
+      initializer: "initialize"
+    });
     await drawManager.waitForDeployment();
 
     await paymentToken.transfer(user1.address, ethers.parseEther("10000"));

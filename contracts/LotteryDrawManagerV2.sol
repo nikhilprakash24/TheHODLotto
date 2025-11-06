@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.22;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/Pausable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./ILotteryData.sol";
@@ -17,7 +19,13 @@ import "./ILotteryData.sol";
  *      - Two-way query mechanics (weight→winner, address→wins)
  *      - Optional Chainlink VRF
  */
-contract LotteryDrawManagerV2 is Ownable, ReentrancyGuard, Pausable {
+contract LotteryDrawManagerV2 is
+    Initializable,
+    OwnableUpgradeable,
+    ReentrancyGuardUpgradeable,
+    PausableUpgradeable,
+    UUPSUpgradeable
+{
     using SafeERC20 for IERC20;
 
     // ============ ENUMS ============
@@ -75,6 +83,9 @@ contract LotteryDrawManagerV2 is Ownable, ReentrancyGuard, Pausable {
     // Draw configurations
     mapping(DrawType => DrawConfig) public drawConfigs;
 
+    // Draw intervals (time between draws for each type)
+    mapping(DrawType => uint256) public drawIntervals;
+
     // Draw history
     uint256 public totalDrawCount;
     mapping(uint256 => Draw) public draws;  // drawId → Draw
@@ -107,7 +118,20 @@ contract LotteryDrawManagerV2 is Ownable, ReentrancyGuard, Pausable {
 
     // ============ CONSTRUCTOR ============
 
-    constructor(address _mintingContract, RandomnessMode _randomnessMode) Ownable(msg.sender) {
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    /**
+     * @dev Initialize the contract (replaces constructor for upgradeable contracts)
+     */
+    function initialize(address _mintingContract, RandomnessMode _randomnessMode) public initializer {
+        __Ownable_init(msg.sender);
+        __ReentrancyGuard_init();
+        __Pausable_init();
+        __UUPSUpgradeable_init();
+
         require(_mintingContract != address(0), "Invalid minting contract");
         mintingContract = ILotteryData(_mintingContract);
         randomnessMode = _randomnessMode;
@@ -116,6 +140,12 @@ contract LotteryDrawManagerV2 is Ownable, ReentrancyGuard, Pausable {
         // Initialize default VRF params
         vrfCallbackGasLimit = 2500000;
         vrfRequestConfirmations = 3;
+
+        // Set draw intervals (in seconds)
+        drawIntervals[DrawType.WEEKLY] = 7 days;
+        drawIntervals[DrawType.MONTHLY] = 30 days;
+        drawIntervals[DrawType.QUARTERLY] = 90 days;
+        drawIntervals[DrawType.YEARLY] = 365 days;
     }
 
     // ============ CONFIGURATION FUNCTIONS ============
@@ -623,7 +653,54 @@ contract LotteryDrawManagerV2 is Ownable, ReentrancyGuard, Pausable {
     }
 
     /**
+     * @dev Get comprehensive system configuration
+     */
+    function getSystemConfig() external view returns (
+        address _mintingContract,
+        RandomnessMode _randomnessMode,
+        uint256 _totalDrawCount,
+        bool _paused
+    ) {
+        return (
+            address(mintingContract),
+            randomnessMode,
+            totalDrawCount,
+            paused()
+        );
+    }
+
+    /**
+     * @dev Get all draw intervals
+     */
+    function getAllDrawIntervals() external view returns (
+        uint256 weekly,
+        uint256 monthly,
+        uint256 quarterly,
+        uint256 yearly
+    ) {
+        return (
+            drawIntervals[DrawType.WEEKLY],
+            drawIntervals[DrawType.MONTHLY],
+            drawIntervals[DrawType.QUARTERLY],
+            drawIntervals[DrawType.YEARLY]
+        );
+    }
+
+    /**
+     * @dev Set draw interval for a specific draw type (admin control)
+     */
+    function setDrawInterval(DrawType _drawType, uint256 _interval) external onlyOwner {
+        require(_interval > 0, "Interval must be > 0");
+        drawIntervals[_drawType] = _interval;
+    }
+
+    /**
      * @dev Allow contract to receive ETH
      */
     receive() external payable {}
+
+    /**
+     * @dev Required by UUPS - only owner can upgrade
+     */
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 }

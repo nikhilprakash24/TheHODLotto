@@ -31,12 +31,14 @@ describe("Full Lottery Flow - Integration Tests", function () {
       await minting.setTierPrice(i, ethers.parseEther(prices[i].toString()), 0, 0);
     }
 
-    // Deploy draw manager
+    // Deploy draw manager (upgradeable)
     const DrawManager = await ethers.getContractFactory("LotteryDrawManagerV2");
-    const drawManager = await DrawManager.deploy(
+    const drawManager = await upgrades.deployProxy(DrawManager, [
       await minting.getAddress(),
       0 // PSEUDO_RANDOM
-    );
+    ], {
+      initializer: "initialize"
+    });
     await drawManager.waitForDeployment();
 
     // Configure all draw types
