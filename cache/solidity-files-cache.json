@@ -1095,8 +1095,8 @@
       ]
     },
     "/home/user/TheHODLotto/contracts/LottoTicketMinter.sol": {
-      "lastModificationDate": 1762376155743,
-      "contentHash": "c2282b5d5c9eb44c3552efc0bdb29185",
+      "lastModificationDate": 1762398595656,
+      "contentHash": "cba081c6b4a758d661f37cb9f1ddfc2c",
       "sourceName": "contracts/LottoTicketMinter.sol",
       "solcConfig": {
         "version": "0.8.22",
@@ -1136,6 +1136,7 @@
         "^0.8.0"
       ],
       "artifacts": [
+        "IRewardPoints",
         "NFTLotteryMintingTierV11"
       ]
     },
@@ -1636,6 +1637,129 @@
       ],
       "artifacts": [
         "Errors"
+      ]
+    },
+    "/home/user/TheHODLotto/contracts/HODLToken.sol": {
+      "lastModificationDate": 1762398560664,
+      "contentHash": "167f192a7f11c7b86da4c481eea71805",
+      "sourceName": "contracts/HODLToken.sol",
+      "solcConfig": {
+        "version": "0.8.22",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata",
+                "storageLayout"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "@openzeppelin/contracts/token/ERC20/ERC20.sol",
+        "@openzeppelin/contracts/access/Ownable.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.22"
+      ],
+      "artifacts": [
+        "HODLToken"
+      ]
+    },
+    "/home/user/TheHODLotto/contracts/RewardPointsManager.sol": {
+      "lastModificationDate": 1762398399799,
+      "contentHash": "a9e3b7e813d54c599d678f4b04f7d911",
+      "sourceName": "contracts/RewardPointsManager.sol",
+      "solcConfig": {
+        "version": "0.8.22",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata",
+                "storageLayout"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "@openzeppelin/contracts/access/Ownable.sol",
+        "@openzeppelin/contracts/utils/ReentrancyGuard.sol",
+        "@openzeppelin/contracts/utils/Pausable.sol",
+        "@openzeppelin/contracts/token/ERC20/IERC20.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.22"
+      ],
+      "artifacts": [
+        "IRewardPoints",
+        "RewardPointsManager"
+      ]
+    },
+    "/home/user/TheHODLotto/contracts/RewardPoints.sol": {
+      "lastModificationDate": 1762398354136,
+      "contentHash": "2d67841a4219b8a602ed304664a7cf26",
+      "sourceName": "contracts/RewardPoints.sol",
+      "solcConfig": {
+        "version": "0.8.22",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata",
+                "storageLayout"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "@openzeppelin/contracts/token/ERC20/ERC20.sol",
+        "@openzeppelin/contracts/access/Ownable.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.22"
+      ],
+      "artifacts": [
+        "RewardPoints"
       ]
     }
   }

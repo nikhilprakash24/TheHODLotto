@@ -9,6 +9,10 @@ import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
+interface IRewardPoints {
+    function burnFrom(address from, uint256 amount) external;
+}
+
 /**
  * @title NFTLotteryMintingTierV11
  * @dev Upgradeable ERC721 NFT contract with tiered minting, lottery system, and soulbound tokens.
@@ -22,12 +26,14 @@ contract NFTLotteryMintingTierV11 is Initializable, ERC721Upgradeable, OwnableUp
     uint256 private _lottoIdCounter;
     address public paymentToken;
     address public anotherPaymentToken;
+    address public rewardPointsToken; // Reward points - burned on use
 
     // Struct for storing tier information
     struct Tier {
         uint256 priceInBaseToken;
         uint256 priceInPaymentToken;
         uint256 priceInAnotherPaymentToken;
+        uint256 priceInRewardPoints;  // Price in reward points (burned on use)
         uint256 weight;
     }
 
@@ -67,6 +73,8 @@ contract NFTLotteryMintingTierV11 is Initializable, ERC721Upgradeable, OwnableUp
     event TierWeightSet(uint256 tier, uint256 weight);
     event PaymentTokenSet(address token);
     event AnotherPaymentTokenSet(address token);
+    event RewardPointsTokenSet(address token);
+    event TierPriceInRewardPointsSet(uint256 tier, uint256 price);
     event TokenMinted(address indexed owner, uint256 tokenId, uint256 tier, uint256 lottoID);
     event Withdrawn(address indexed owner, uint256 amount);
     event LotteryDrawn(address indexed winner, uint256 lottoID, uint256 winningNumber, uint256 prize);
@@ -87,6 +95,7 @@ contract NFTLotteryMintingTierV11 is Initializable, ERC721Upgradeable, OwnableUp
                 priceInBaseToken: 0,
                 priceInPaymentToken: 0,
                 priceInAnotherPaymentToken: 0,
+                priceInRewardPoints: 0,
                 weight: 1 << i // 1, 2, 4, 8, 16, 32, 64, 128, 256, 512
             });
         }
@@ -149,6 +158,25 @@ contract NFTLotteryMintingTierV11 is Initializable, ERC721Upgradeable, OwnableUp
     }
 
     /**
+     * @dev Sets the reward points token address.
+     * @param token The address of the reward points token.
+     */
+    function setRewardPointsToken(address token) external onlyOwner {
+        rewardPointsToken = token;
+        emit RewardPointsTokenSet(token);
+    }
+
+    /**
+     * @dev Sets tier price in reward points.
+     * @param tier The tier number.
+     * @param priceInRewardPoints The price in reward points.
+     */
+    function setTierPriceInRewardPoints(uint256 tier, uint256 priceInRewardPoints) external onlyOwner onlyValidTier(tier) {
+        tiers[tier].priceInRewardPoints = priceInRewardPoints;
+        emit TierPriceInRewardPointsSet(tier, priceInRewardPoints);
+    }
+
+    /**
      * @dev Mints an NFT with the base blockchain token.
      * @param tier The tier number.
      */
@@ -182,6 +210,21 @@ contract NFTLotteryMintingTierV11 is Initializable, ERC721Upgradeable, OwnableUp
         require(anotherPaymentToken != address(0), "Another payment token not set");
 
         IERC20(anotherPaymentToken).safeTransferFrom(msg.sender, address(this), price);
+        _mintToken(tier);
+    }
+
+    /**
+     * @dev Mints an NFT with reward points (points are BURNED).
+     * @param tier The tier number.
+     */
+    function mintWithRewardPoints(uint256 tier) external nonReentrant onlyValidTier(tier) {
+        uint256 price = tiers[tier].priceInRewardPoints;
+        require(price > 0, "Reward points not accepted for this tier");
+        require(rewardPointsToken != address(0), "Reward points token not set");
+
+        // Burn reward points from user
+        IRewardPoints(rewardPointsToken).burnFrom(msg.sender, price);
+
         _mintToken(tier);
     }
 
