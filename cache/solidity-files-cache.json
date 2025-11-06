@@ -1682,8 +1682,8 @@
       ]
     },
     "/home/user/TheHODLotto/contracts/RewardPointsManager.sol": {
-      "lastModificationDate": 1762399398783,
-      "contentHash": "2f4db0a0e0679ff34f102a24d7b35dcd",
+      "lastModificationDate": 1762404710482,
+      "contentHash": "727ed5a168aac82d13ad4b2dba526da2",
       "sourceName": "contracts/RewardPointsManager.sol",
       "solcConfig": {
         "version": "0.8.22",
