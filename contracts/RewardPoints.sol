@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.22;
 
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 /**
  * @title RewardPoints
- * @dev ERC20 token that can ONLY be used for NFT lottery tickets and game bets
+ * @dev ERC20 token that can ONLY be used for NFT lottery tickets and game bets (UUPS Upgradeable)
  *      Can only be minted by the RewardPointsManager contract
  *      Non-transferable to prevent secondary markets
  */
-contract RewardPoints is ERC20, Ownable {
+contract RewardPoints is Initializable, ERC20Upgradeable, OwnableUpgradeable, UUPSUpgradeable {
 
     // Authorized contracts that can accept reward points as payment
     mapping(address => bool) public authorizedSpenders;
@@ -22,7 +24,19 @@ contract RewardPoints is ERC20, Ownable {
     event AuthorizedSpenderRemoved(address indexed spender);
     event RewardManagerSet(address indexed manager);
 
-    constructor() ERC20("HODL Reward Points", "HPOINTS") Ownable(msg.sender) {}
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    /**
+     * @dev Initialize the contract
+     */
+    function initialize() public initializer {
+        __ERC20_init("HODL Reward Points", "HPOINTS");
+        __Ownable_init(msg.sender);
+        __UUPSUpgradeable_init();
+    }
 
     /**
      * @dev Set the reward manager (can only be set once for security)
@@ -52,6 +66,32 @@ contract RewardPoints is ERC20, Ownable {
     }
 
     /**
+     * @dev Check if address is authorized spender
+     */
+    function isAuthorizedSpender(address _spender) external view returns (bool) {
+        return authorizedSpenders[_spender];
+    }
+
+    /**
+     * @dev Get all reward point info for dashboard
+     */
+    function getTokenInfo() external view returns (
+        string memory tokenName,
+        string memory tokenSymbol,
+        uint8 tokenDecimals,
+        address manager,
+        address tokenOwner
+    ) {
+        return (
+            name(),
+            symbol(),
+            decimals(),
+            rewardManager,
+            owner()
+        );
+    }
+
+    /**
      * @dev Mint reward points - only callable by RewardManager
      */
     function mint(address _to, uint256 _amount) external {
@@ -78,4 +118,9 @@ contract RewardPoints is ERC20, Ownable {
         );
         super._update(from, to, amount);
     }
+
+    /**
+     * @dev Required by UUPS - only owner can upgrade
+     */
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 }

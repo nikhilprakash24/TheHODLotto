@@ -30,12 +30,14 @@ describe("LotteryDrawManagerV2 - Unit Tests", function () {
       await minting.setTierPrice(i, price, 0, 0);
     }
 
-    // Deploy draw manager
+    // Deploy draw manager (upgradeable)
     const DrawManager = await ethers.getContractFactory("LotteryDrawManagerV2");
-    const drawManager = await DrawManager.deploy(
+    const drawManager = await upgrades.deployProxy(DrawManager, [
       await minting.getAddress(),
       0 // PSEUDO_RANDOM
-    );
+    ], {
+      initializer: "initialize"
+    });
     await drawManager.waitForDeployment();
 
     // Distribute tokens
